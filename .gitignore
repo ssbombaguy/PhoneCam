@@ -1,0 +1,17 @@
+node_modules/
+.data/
+dist/
+e2e/screenshots/
+
+# React Native / Expo
+mobile/.expo/
+mobile/android/
+mobile/ios/
+*.apk
+*.aab
+phonecam.ico
+
+# Gradle build output of local native modules
+**/android/build/
+**/.gradle/
+**/.cxx/

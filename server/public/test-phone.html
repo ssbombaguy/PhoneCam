@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PhoneCam test phone</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/test.css">
+</head>
+<body>
+  <main class="wrap">
+    <h1>Test phone</h1>
+    <p class="muted">Pretends to be the PhoneCam app, so you can try the extension without a phone. Keep this tab open.</p>
+    <video id="preview" autoplay muted playsinline></video>
+    <p><span id="state">Connecting…</span> · Viewers: <span id="viewers">0</span></p>
+    <div class="row">
+      <button id="pattern">Test pattern + beep</button>
+      <button id="webcam">Use this PC's webcam</button>
+    </div>
+    <pre id="log"></pre>
+  </main>
+  <script src="/test-phone.js"></script>
+</body>
+</html>

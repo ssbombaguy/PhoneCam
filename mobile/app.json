@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "PhoneCam",
+    "slug": "phonecam",
+    "scheme": "phonecam",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0d0f12",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d0f12"
+    },
+    "android": {
+      "package": "com.phonecam.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#3ddc97",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PhoneCam uses the camera to stream video to your PC and to scan the pairing code.",
+          "microphonePermission": "PhoneCam streams your microphone to your PC.",
+          "recordAudioAndroid": true
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "# Libraries here look classes up by name at runtime; keep all names.\n-dontobfuscate\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class org.jni_zero.** { *; }\n-dontwarn org.jni_zero.**\n-keep class J.** { *; }\n-keep class com.google.mlkit.vision.barcode.** { *; }",
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
+          }
+        }
+      ]
+    ]
+  }
+}

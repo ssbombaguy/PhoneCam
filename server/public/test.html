@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PhoneCam meeting test</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/test.css">
+</head>
+<body>
+  <main class="wrap">
+    <h1>Meeting test</h1>
+    <p class="muted">Picks a camera and microphone the same way Google Meet does. If the extension is installed, <b>PhoneCam</b> appears in both lists.</p>
+    <p id="ext" class="muted">Extension: checking…</p>
+    <div class="row">
+      <label>Camera <select id="cam"></select></label>
+      <label>Microphone <select id="mic"></select></label>
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+    </div>
+    <video id="video" autoplay muted playsinline></video>
+    <p>Video: <span id="vinfo">—</span></p>
+    <p>Audio level: <meter id="level" min="0" max="1" value="0"></meter> <span id="ainfo">—</span></p>
+  </main>
+  <script src="/test.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PhoneCam</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/viewer.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><img src="/icon.svg" alt=""> PhoneCam</div>
+    <div class="status">
+      <span id="conn" class="badge"><i></i><span>Starting…</span></span>
+      <span id="meta" class="meta mono"></span>
+    </div>
+    <div class="actions">
+      <button id="sound" aria-pressed="false" disabled>Sound off</button>
+      <button id="help">Set up Google Meet</button>
+      <button id="fullscreen" title="Fullscreen (F)">Fullscreen</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <video id="video" autoplay playsinline muted></video>
+
+    <section class="connect" id="connect">
+      <div class="qr" id="qr" aria-label="Pairing QR code"></div>
+      <div class="steps">
+        <h1>Connect your phone</h1>
+        <ol>
+          <li>Put your phone on the <strong>same Wi-Fi</strong> as this PC.</li>
+          <li>Open the <strong>PhoneCam</strong> app and tap <strong>Scan QR code</strong>.</li>
+          <li>Point it at this code. The camera starts automatically.</li>
+        </ol>
+        <p class="muted">Can't scan? Enter these in the app instead:</p>
+        <dl class="manual">
+          <dt>Address</dt><dd id="addr" class="mono">…</dd>
+          <dt>Port</dt><dd id="port" class="mono">…</dd>
+          <dt>Key</dt><dd id="key" class="mono">…</dd>
+        </dl>
+        <details id="otherAddrs" hidden>
+          <summary>Other network addresses on this PC</summary>
+          <ul id="addrList"></ul>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="helpDialog">
+    <form method="dialog">
+      <h2>Use your phone in Google Meet</h2>
+      <p class="muted">One-time setup of the PhoneCam Chrome extension:</p>
+      <ol>
+        <li>In Chrome, open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</li>
+        <li>Click <strong>Load unpacked</strong> and choose the folder <code>phonecam\extension\dist</code>.</li>
+        <li>Pin PhoneCam from the puzzle-piece menu so its status is always visible.</li>
+      </ol>
+      <p class="muted">Then in every class:</p>
+      <ol>
+        <li>Start PhoneCam on this PC (<code>start.bat</code>) and on your phone.</li>
+        <li>In Meet: <strong>⋮ → Settings → Video → Camera → PhoneCam</strong>.</li>
+        <li>Optional: <strong>Audio → Microphone → PhoneCam Microphone</strong>.</li>
+      </ol>
+      <p class="muted">Want to check it first? Open the <a href="/test.html" target="_blank">meeting test page</a>.</p>
+      <div class="dialog-actions"><button value="close" class="primary">Done</button></div>
+    </form>
+  </dialog>
+
+  <script src="/viewer.js"></script>
+</body>
+</html>

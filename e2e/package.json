@@ -1,0 +1,12 @@
+{
+  "name": "phonecam-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end test: extension + fake phone + fake meeting in a real Chrome",
+  "scripts": {
+    "test": "node run.js"
+  },
+  "dependencies": {
+    "puppeteer": "^25.14.0"
+  }
+}

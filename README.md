@@ -38,14 +38,14 @@ Google Meet → Settings → Video → Camera: PhoneCam
 
 ## Every class
 
-1. On the PC, the server starts by itself when Windows starts. You can also double-click the **PhoneCam** icon on the Desktop, which opens the preview page. If Windows Firewall asks, allow Node.js on **Private networks**.
+1. On the PC, double-click the **PhoneCam** icon on the Desktop. It starts the server and opens the preview page. If Windows Firewall asks, allow Node.js on **Private networks**.
 2. On the phone, open **PhoneCam** and tap **Scan QR code**. Scan the code shown on the preview page or in the extension popup. After the first time, just tap **Connect**.
 3. In Meet, go to **⋮ → Settings → Video → Camera → PhoneCam**. You can also set **Audio → Microphone → PhoneCam Microphone**.
 4. **Close the PhoneCam preview tab during class.** Every tab that shows the camera makes the phone send one more video stream. The preview only streams while it's visible on screen.
 
 The phone and the PC must be on the same home network. While streaming, a **"PhoneCam is streaming"** notification keeps the camera and mic running, even with the screen off or when you switch to another app. Tap the notification to come back.
 
-**Desktop shortcut and auto-start:** run `powershell -ExecutionPolicy Bypass -File install-shortcuts.ps1` once. Add `-NoStartup` for the Desktop icon only, or `-Remove` to undo.
+**Desktop shortcut:** run `powershell -ExecutionPolicy Bypass -File install-shortcuts.ps1 -NoStartup` once. Leave out `-NoStartup` if you also want PhoneCam to start with Windows, or use `-Remove` to undo.
 
 If you pick PhoneCam before the phone has connected, Meet shows a "Waiting for your phone" picture. The video switches to live by itself when the phone connects. If the phone disconnects, the waiting picture comes back and Meet keeps PhoneCam selected.
 

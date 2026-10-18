@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "PhoneCam",
   "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq9V+MGq64HdcrcRxQJ436SRAdkO93CtjnQ/rITSoISGVJkz1bkHVosJWIxUQTw2rDoOJB1V/oDKy0aaYtQoJtn2rP8xSS5arMJo9YCRa6aqskKJMYo+01BUaY0F27clTgYogp7Dcqw7FGFhtSyfIEzWZyWdJgnoSHJFNkyjlM7zALOWNjkgp6ExRuLVTkGUOWSBYGVQX/wx5SAl0JllVPCYRFNKC9SRtMM3vYfjk0EvJ2QmC7CNyRO2OooOeCjbA7I41xhBsUmbvnl4kPe1xYww0Coe42ZSSzIs+sJRJ+ftfGy+a9bW9nq0gybKioZWjzK+sZhBN4KIjByVdy1ANbwIDAQAB",
   "description": "Use your Android phone as a camera and microphone in Google Meet and other browser video calls.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -21,8 +22,13 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage"],
-  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -36,7 +42,9 @@
         "http://localhost/test.html*",
         "http://127.0.0.1/test.html*"
       ],
-      "js": ["inject.js"],
+      "js": [
+        "inject.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -52,7 +60,9 @@
         "http://localhost/test.html*",
         "http://127.0.0.1/test.html*"
       ],
-      "js": ["bridge.js"],
+      "js": [
+        "bridge.js"
+      ],
       "run_at": "document_start"
     }
   ]

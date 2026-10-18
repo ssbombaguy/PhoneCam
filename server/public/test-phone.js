@@ -2,7 +2,7 @@
 // so the extension can be tested without a phone. It's also the reference for
 // what the app must do:
 //
-//   connect   ws://HOST:PORT/ws?role=phone&key=KEY, then send {type:'hello', name}
+//   connect   ws://HOST:PORT/ws?role=phone, pair (challenge/auth, below), then send {type:'hello', name}
 //   on {type:'viewer-join', id}   create an RTCPeerConnection, add camera + mic
 //                                 tracks, send the offer: {type:'signal', to:id, data:{sdp}}
 //   on {type:'signal', from, data} apply the answer / ICE candidate to that viewer
@@ -85,25 +85,72 @@
 
   // ---- Signaling -------------------------------------------------------------
 
+  // ---- Pairing handshake + signed messages (same as the app; see server.js) ----
+
+  let key = '';
+  let session = null;
+  let sendSeq = 0;
+  let recvSeq = 0;
+
+  async function hmac(k, text) {
+    const enc = new TextEncoder();
+    const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(k), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(text));
+    return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  const randomHex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('');
+
   async function connect() {
-    const info = await fetch('/info').then((r) => r.json());
-    const url = `ws://${location.host}/ws?role=phone&key=${info.key}`;
-    ws = new WebSocket(url);
-    ws.onopen = () => {
-      $('state').textContent = 'Connected to server';
-      ws.send(JSON.stringify({ type: 'hello', name: 'Test phone' }));
-      log('Connected as phone');
-    };
+    key = (await fetch('/info').then((r) => r.json())).key;
+    ws = new WebSocket(`ws://${location.host}/ws?role=phone`);
+    session = null;
+    sendSeq = 0;
+    recvSeq = 0;
+    let serverNonce = null;
+    let phoneNonce = null;
+    let inbox = Promise.resolve();
+
     ws.onclose = () => {
       $('state').textContent = 'Disconnected — retrying';
       for (const id of [...peers.keys()]) closePeer(id);
       setTimeout(connect, 1500);
     };
-    ws.onmessage = (e) => onMessage(JSON.parse(e.data));
+    ws.onmessage = (e) => {
+      // Handle strictly in order (hashing is async).
+      inbox = inbox.then(async () => {
+        const frame = JSON.parse(e.data);
+        if (!session) {
+          if (frame.type === 'challenge') {
+            serverNonce = frame.nonce;
+            phoneNonce = randomHex(16);
+            ws.send(JSON.stringify({ type: 'auth', nonce: phoneNonce, proof: await hmac(key, `phone|${serverNonce}|${phoneNonce}`) }));
+          } else if (frame.type === 'auth-ok') {
+            if (frame.proof !== await hmac(key, `server|${serverNonce}|${phoneNonce}`)) { log('Server failed to prove the key!'); ws.close(); return; }
+            session = await hmac(key, `session|${serverNonce}|${phoneNonce}`);
+            $('state').textContent = 'Connected to server';
+            log('Paired with server');
+            await send({ type: 'hello', name: 'Test phone' });
+          }
+          return;
+        }
+        if (!(frame.s > recvSeq) || frame.h !== await hmac(session, `s|${frame.s}|${frame.m}`)) { log('Bad signature — closing'); ws.close(); return; }
+        recvSeq = frame.s;
+        await onMessage(JSON.parse(frame.m));
+      }).catch((err) => log(`Error: ${err.message}`));
+    };
   }
 
+  // Signing is async, so queue sends: sequence numbers must leave in order.
+  let outbox = Promise.resolve();
   function send(msg) {
-    if (ws?.readyState === 1) ws.send(JSON.stringify(msg));
+    outbox = outbox.then(async () => {
+      if (ws?.readyState !== 1 || !session) return;
+      const m = JSON.stringify(msg);
+      const s = ++sendSeq;
+      ws.send(JSON.stringify({ m, s, h: await hmac(session, `p|${s}|${m}`) }));
+    }).catch(() => {});
+    return outbox;
   }
 
   async function onMessage(msg) {

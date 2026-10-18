@@ -3,7 +3,7 @@
 // The video itself goes directly phone -> browser over WebRTC; this server only
 // passes the connection setup messages ("signaling") between them.
 //
-//   Phone app    ws://<LAN IP>:PORT/ws?role=phone&key=KEY     (needs the pairing key)
+//   Phone app    ws://<LAN IP>:PORT/ws?role=phone                (proves it knows the pairing key)
 //   Browser      ws://127.0.0.1:PORT/ws?role=viewer           (this PC only: the Chrome
 //                                                               extension or the preview page)
 //   Pages        http://localhost:PORT/                       (preview + pairing QR code)
@@ -72,11 +72,14 @@ function isLocalHost(req) {
   return host === `localhost:${PORT}` || host === `127.0.0.1:${PORT}` || host === `[::1]:${PORT}`;
 }
 
-// Only our own pages and browser extensions may watch the camera. Websites
-// can't open this socket and spy on the stream.
+// Only our own pages and the PhoneCam extension may watch the camera — not
+// websites, and not other installed extensions. The extension ID is fixed by
+// the "key" in extension/public/manifest.json.
+const EXTENSION_ID = process.env.PHONECAM_EXTENSION_ID || 'ojnbajfobalgohpmbmngfkjglepholmi';
+
 function isTrustedViewerOrigin(origin) {
   if (!origin) return true; // non-browser local tools (tests)
-  if (origin.startsWith('chrome-extension://')) return true;
+  if (origin === `chrome-extension://${EXTENSION_ID}`) return true;
   return origin === `http://localhost:${PORT}` || origin === `http://127.0.0.1:${PORT}`;
 }
 
@@ -84,6 +87,38 @@ function safeEqual(a, b) {
   const x = Buffer.from(String(a));
   const y = Buffer.from(String(b));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+function isPrivateIPv4(ip) {
+  const p = String(ip).replace('::ffff:', '').split('.').map(Number);
+  if (p.length !== 4 || p.some((n) => !(n >= 0 && n <= 255))) return false;
+  return p[0] === 10 || p[0] === 127 || (p[0] === 192 && p[1] === 168) ||
+    (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 100 && p[1] >= 64 && p[1] <= 127);
+}
+
+function hmac(key, text) {
+  return crypto.createHmac('sha256', key).update(text).digest('hex');
+}
+
+// Too many wrong pairing attempts from one address -> locked out for a while.
+const MAX_FAILURES = 5;
+const LOCKOUT_MS = 60_000;
+const failures = new Map(); // ip -> { count, until }
+
+function isLockedOut(ip) {
+  const f = failures.get(ip);
+  return !!f && f.until > Date.now();
+}
+
+function recordFailure(ip) {
+  const f = failures.get(ip) || { count: 0, until: 0 };
+  f.count++;
+  if (f.count >= MAX_FAILURES) {
+    f.until = Date.now() + LOCKOUT_MS;
+    f.count = 0;
+    log(`Too many wrong pairing attempts from ${ip} — blocked for a minute`);
+  }
+  failures.set(ip, f);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,28 +147,72 @@ function watchingCount() {
   return n;
 }
 
-function handlePhone(ws, req) {
+// Phone connections are authenticated without ever sending the key:
+//
+//   server -> {type:'challenge', nonce: sn}
+//   phone  -> {type:'auth', nonce: pn, proof: HMAC(key, "phone|sn|pn")}
+//   server -> {type:'auth-ok', proof: HMAC(key, "server|sn|pn")}   (phone checks it: real PC)
+//
+// After that every message both ways is {m: json, s: seq, h: HMAC(session, "<dir>|seq|json")}
+// with session = HMAC(key, "session|sn|pn") and dir "p" (from phone) / "s" (from server),
+// so someone else on the Wi-Fi can neither learn the key nor alter or replay messages
+// (e.g. swap in their own video connection).
+function handlePhone(ws, req, key) {
   const ip = req.socket.remoteAddress?.replace('::ffff:', '');
-  if (phone) {
-    send(phone.ws, { type: 'replaced' });
-    phone.ws.close(4000, 'Another phone connected');
-  }
-  // The PC address the phone reached us on — the browser is reachable there too.
-  const localIp = req.socket.localAddress?.replace('::ffff:', '');
-  phone = { ws, name: 'Phone', ip, localIp, since: new Date().toISOString() };
-  log(`Phone connected from ${ip}`);
+  const serverNonce = crypto.randomBytes(16).toString('hex');
+  let session = null;
+  let recvSeq = 0;
+  let sendSeq = 0;
+
+  const authTimer = setTimeout(() => ws.close(4001, 'Pairing timed out'), 5000);
+  ws.send(JSON.stringify({ type: 'challenge', nonce: serverNonce }));
+
+  const sendSigned = (msg) => {
+    if (ws.readyState !== 1 || !session) return;
+    const m = JSON.stringify(msg);
+    const s = ++sendSeq;
+    ws.send(JSON.stringify({ m, s, h: hmac(session, `s|${s}|${m}`) }));
+  };
 
   ws.on('message', (raw) => {
-    if (phone?.ws !== ws) return;
-    const msg = parse(raw);
-    if (!msg) return;
+    const frame = parse(raw);
+    if (!frame) return;
+
+    // ---- Pairing handshake ----
+    if (!session) {
+      const pn = String(frame.nonce || '');
+      if (frame.type !== 'auth' || !/^[0-9a-f]{32}$/.test(pn) ||
+          !safeEqual(frame.proof || '', hmac(key, `phone|${serverNonce}|${pn}`))) {
+        recordFailure(ip);
+        log(`Rejected a phone with the wrong key from ${ip}`);
+        ws.close(4003, 'Wrong pairing key');
+        return;
+      }
+      clearTimeout(authTimer);
+      failures.delete(ip);
+      session = hmac(key, `session|${serverNonce}|${pn}`);
+      ws.send(JSON.stringify({ type: 'auth-ok', proof: hmac(key, `server|${serverNonce}|${pn}`) }));
+      becomePhone();
+      return;
+    }
+
+    // ---- Signed messages ----
+    const s = Number(frame.s);
+    if (typeof frame.m !== 'string' || !(s > recvSeq) || !safeEqual(frame.h || '', hmac(session, `p|${s}|${frame.m}`))) {
+      log('Dropped a phone message with a bad signature');
+      ws.close(4003, 'Bad signature');
+      return;
+    }
+    recvSeq = s;
+    const msg = parse(frame.m);
+    if (!msg || phone?.ws !== ws) return;
     switch (msg.type) {
       case 'hello':
         phone.name = String(msg.name || 'Phone').slice(0, 60);
         log(`Phone is "${phone.name}"`);
         broadcastPhoneState();
         // Start a stream for every tab already waiting on the camera.
-        for (const [id, v] of viewers) if (v.watching) send(ws, { type: 'viewer-join', id });
+        for (const [id, v] of viewers) if (v.watching) phone.send({ type: 'viewer-join', id });
         break;
       case 'signal': {
         const v = viewers.get(msg.to);
@@ -142,6 +221,19 @@ function handlePhone(ws, req) {
       }
     }
   });
+
+  function becomePhone() {
+    if (phone) {
+      phone.send({ type: 'replaced' });
+      phone.ws.close(4000, 'Another phone connected');
+    }
+    // The PC address the phone reached us on — the browser is reachable there too.
+    const localIp = req.socket.localAddress?.replace('::ffff:', '');
+    phone = { ws, send: sendSigned, name: 'Phone', ip, localIp, since: new Date().toISOString() };
+    log(`Phone connected from ${ip}`);
+  }
+
+  ws.on('close', () => clearTimeout(authTimer));
 
   ws.on('close', () => {
     if (phone?.ws !== ws) return;
@@ -165,23 +257,23 @@ function handleViewer(ws) {
         if (viewer.watching) return;
         viewer.watching = true;
         log(`Camera requested (${watchingCount()} active)`);
-        if (phone) send(phone.ws, { type: 'viewer-join', id });
+        if (phone) phone.send({ type: 'viewer-join', id });
         break;
       case 'unwatch':
         if (!viewer.watching) return;
         viewer.watching = false;
-        if (phone) send(phone.ws, { type: 'viewer-leave', id });
+        if (phone) phone.send({ type: 'viewer-leave', id });
         log(`Camera released (${watchingCount()} active)`);
         break;
       case 'signal':
-        if (phone && viewer.watching) send(phone.ws, { type: 'signal', from: id, data: revealCandidate(msg.data, phone.localIp) });
+        if (phone && viewer.watching) phone.send({ type: 'signal', from: id, data: revealCandidate(msg.data, phone.localIp) });
         break;
     }
   });
 
   ws.on('close', () => {
     viewers.delete(id);
-    if (viewer.watching && phone) send(phone.ws, { type: 'viewer-leave', id });
+    if (viewer.watching && phone) phone.send({ type: 'viewer-leave', id });
   });
 }
 
@@ -202,6 +294,8 @@ function startStunServer(port) {
   const sock = dgram.createSocket('udp4');
   const MAGIC = 0x2112a442;
   sock.on('message', (msg, rinfo) => {
+    // Home-network senders only: the internet can't use us to bounce traffic.
+    if (!isPrivateIPv4(rinfo.address)) return;
     if (msg.length < 20 || msg.readUInt16BE(0) !== 0x0001 || msg.readUInt32BE(4) !== MAGIC) return;
     const res = Buffer.alloc(32);
     res.writeUInt16BE(0x0101, 0);        // Binding success response
@@ -310,7 +404,8 @@ async function main() {
     if (url.pathname !== '/ws') return reject(404, 'Not Found');
 
     if (role === 'phone') {
-      if (!safeEqual(url.searchParams.get('key') || '', cfg.key)) return reject(403, 'Forbidden');
+      const ip = req.socket.remoteAddress?.replace('::ffff:', '');
+      if (isLockedOut(ip)) return reject(429, 'Too Many Requests');
     } else if (role === 'viewer') {
       if (!isLoopback(req) || !isTrustedViewerOrigin(req.headers.origin)) return reject(403, 'Forbidden');
     } else {
@@ -319,8 +414,9 @@ async function main() {
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.isAlive = true;
+      ws.role = role;
       ws.on('pong', () => { ws.isAlive = true; });
-      if (role === 'phone') handlePhone(ws, req);
+      if (role === 'phone') handlePhone(ws, req, cfg.key);
       else handleViewer(ws);
     });
   });
@@ -332,7 +428,7 @@ async function main() {
       if (!ws.isAlive) { ws.terminate(); continue; }
       ws.isAlive = false;
       ws.ping();
-      send(ws, { type: 'ping' });
+      if (ws.role === 'viewer') send(ws, { type: 'ping' }); // phone messages must be signed
     }
   }, 15000);
 

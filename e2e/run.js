@@ -29,7 +29,9 @@ async function status() {
   const browser = await puppeteer.launch({
     headless: !show,
     enableExtensions: [EXT],
-    args: ['--autoplay-policy=no-user-gesture-required'],
+    // Fake devices + auto-accept the camera prompt (PhoneCam now asks for the
+    // same permission as a real webcam).
+    args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
     defaultViewport: { width: 1100, height: 800 },
   });
 
@@ -102,6 +104,15 @@ async function status() {
     const f2 = await meet.evaluate(() => window.__meetingTest.frames);
     check('placeholder resumes when phone leaves', f2 > f1, `${f2 - f1} frames in 1.5s`);
     await meet.screenshot({ path: path.join(SHOTS, '3-phone-left.png') });
+
+    // 6. Site without camera permission must not get PhoneCam either.
+    await meet.evaluate(() => window.__meetingStop());
+    const cdp = await meet.createCDPSession();
+    await cdp.send('Browser.setPermission', { origin: BASE, permission: { name: 'camera' }, setting: 'denied' });
+    const denied = await meet.evaluate(() => navigator.mediaDevices
+      .getUserMedia({ video: { deviceId: { exact: 'phonecam-video' } } })
+      .then((s) => { s.getTracks().forEach((t) => t.stop()); return 'GRANTED'; }, (e) => e.name));
+    check('PhoneCam respects a denied camera permission', denied === 'NotAllowedError', denied);
   } catch (err) {
     console.error(err);
     failures++;

@@ -476,11 +476,35 @@
     return [...devices, fakeVideoDevice, fakeAudioDevice];
   };
 
+  // PhoneCam must not be a way around the browser's camera/mic permission: the
+  // site needs the same permission it would need for a real webcam.
+  async function ensurePermission(md, kind) {
+    const name = kind === 'video' ? 'camera' : 'microphone';
+    try {
+      const { state: s } = await navigator.permissions.query({ name });
+      if (s === 'granted') return;
+      if (s === 'denied') throw new DOMException('Permission denied', 'NotAllowedError');
+    } catch (err) {
+      if (err.name === 'NotAllowedError') throw err;
+    }
+    // Not decided yet: let the browser show its normal prompt, then release the
+    // real device straight away.
+    try {
+      const probe = await origGetUserMedia.call(md, { [kind]: true });
+      probe.getTracks().forEach((t) => t.stop());
+    } catch (err) {
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') throw err;
+      // No physical device on this PC: the browser has nothing to ask about.
+    }
+  }
+
   MD.getUserMedia = async function getUserMedia(constraints) {
     const c = constraints || {};
     const wantVideo = wants(c.video, VIDEO_ID);
     const wantAudio = wants(c.audio, AUDIO_ID);
     if (!wantVideo && !wantAudio) return origGetUserMedia.call(this, constraints);
+    if (wantVideo) await ensurePermission(this, 'video');
+    if (wantAudio) await ensurePermission(this, 'audio');
 
     const tracks = [];
     const real = {};

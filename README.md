@@ -99,10 +99,32 @@ For development with live reload, use `npx expo run:android` with the phone conn
 
 ## Privacy and security
 
-- Video goes directly from the phone to the browser on your local network. Nothing is sent to the internet.
-- The phone needs the pairing **key** from the QR code to connect, so other devices on your Wi-Fi can't connect without it.
-- Only this PC can watch the stream: the Chrome extension or `localhost` pages. Websites can't connect to the server, because it checks where each connection comes from.
+- **Video stays on your network.** WebRTC always encrypts it, and it goes directly from the phone to the browser. Nothing is sent to the internet.
+- **The pairing key never travels over the network.** The phone and the server each prove they know the key with a challenge and response (HMAC-SHA256), and every message after that is signed with sequence numbers. Someone else on the Wi-Fi can't learn the key, pretend to be your phone or PC, or swap in their own video connection.
+- **Wrong keys are locked out.** After 5 wrong attempts, the address is blocked for a minute.
+- **The phone only streams to home-network addresses** (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`). A `phonecam://` link from a website or message never starts the camera by itself: the app asks you first.
+- **Only this PC can watch.** That means the PhoneCam extension (by its fixed ID) and `localhost` pages. Other websites and other extensions are refused.
+- **Sites need camera permission for PhoneCam too.** A site that isn't allowed to use your webcam can't use PhoneCam either.
 - To make a new key, delete `server/.data/config.json` and restart. Then scan the QR code again.
+
+**Known limits:**
+- **Supported sites could request the stream directly.** Scripts on the sites the extension runs on (Meet, Zoom, …) share the page with PhoneCam's script. In theory they could ask for the stream without going through the camera menu.
+- **The pairing QR code is a secret.** Don't share screenshots of it.
+- **The APK is signed with Expo's public development key.** Create your own signing key before giving the app to others.
+
+## Code quality
+
+From the project root, after `npm install`:
+
+- `npm run lint`: ESLint over the server, extension, app and tests.
+- `npm test`: unit tests (pairing rules, HMAC against Node's crypto).
+- `npm run test:e2e`: with the server running, a real Chrome with the extension, the fake phone and the fake meeting, plus the server security checks.
+
+
+Did you mean this?
+  npm test # Test a package
+To see a list of supported npm commands, run:
+  npm help runs the unit tests.  runs the browser and security tests, with the server running.
 
 ## Troubleshooting
 

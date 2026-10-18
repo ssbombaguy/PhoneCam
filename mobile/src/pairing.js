@@ -14,11 +14,21 @@ export function parsePairingUrl(text) {
   return validate({ host: params.host, port: params.port, key: params.key });
 }
 
+// Only home/office network addresses: the camera must never be streamed to a
+// server on the internet, even if someone sends a crafted pairing link.
+export function isPrivateIPv4(host) {
+  const parts = String(host).split('.');
+  if (parts.length !== 4 || parts.some((x) => !/^\d{1,3}$/.test(x))) return false;
+  const [a, b, c, d] = parts.map(Number);
+  if ([a, b, c, d].some((n) => n > 255)) return false;
+  return a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127);
+}
+
 export function validate({ host, port, key }) {
   const h = String(host || '').trim();
   const p = Number(port);
   const k = String(key || '').trim();
-  if (!/^[\w.-]+$/.test(h) || !(p > 0 && p < 65536) || !/^\w{4,64}$/.test(k)) return null;
+  if (!isPrivateIPv4(h) || !(Number.isInteger(p) && p > 0 && p < 65536) || !/^[0-9a-zA-Z]{8,64}$/.test(k)) return null;
   return { host: h, port: p, key: k };
 }
 

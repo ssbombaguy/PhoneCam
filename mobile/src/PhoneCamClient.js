@@ -1,7 +1,13 @@
 // Talks to the PhoneCam server on the PC and streams the camera to every
 // browser tab that asks for it (one WebRTC connection per tab).
 //
-// Protocol (same as server/public/test-phone.js):
+// Pairing (the key itself never goes over the network — see server.js):
+//   <- {type:'challenge', nonce: sn}
+//   -> {type:'auth', nonce: pn, proof: HMAC(key, "phone|sn|pn")}
+//   <- {type:'auth-ok', proof: HMAC(key, "server|sn|pn")}    we check it: it's really our PC
+// Then every message is signed: {m: json, s: seq, h: HMAC(session, "<p|s>|seq|json")}.
+//
+// Messages (same as server/public/test-phone.js):
 //   -> {type:'hello', name}
 //   <- {type:'viewer-join', id}        create a connection, send the offer
 //   <- {type:'viewer-leave', id}       close it
@@ -10,6 +16,10 @@
 //   <- {type:'replaced'}               another phone took over
 
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCRtpSender } from 'react-native-webrtc';
+import { getRandomBytes } from 'expo-crypto';
+import { hmacHex, hexEqual } from './hmac';
+
+const randomHex = (n) => Array.from(getRandomBytes(n), (b) => b.toString(16).padStart(2, '0')).join('');
 
 // Enough for a sharp picture without filling the Wi-Fi link (a full link = queued
 // packets = delay). Battery saver halves it.
@@ -17,7 +27,11 @@ const MAX_BITRATE = { 480: 1_200_000, 720: 2_500_000, 1080: 4_500_000 };
 
 export default class PhoneCamClient {
   constructor({ host, port, key, name, onChange }) {
-    this.url = `ws://${host}:${port}/ws?role=phone&key=${encodeURIComponent(key)}`;
+    this.url = `ws://${host}:${port}/ws?role=phone`;
+    this.key = key;
+    this.session = null;
+    this.sendSeq = 0;
+    this.recvSeq = 0;
     // The PhoneCam server answers STUN on the same port, so the phone learns the
     // address it appears as from the PC (needed when it's behind a second router).
     this.iceServers = [{ urls: `stun:${host}:${port}` }];
@@ -79,15 +93,47 @@ export default class PhoneCamClient {
     const ws = new WebSocket(this.url);
     this.ws = ws;
 
-    ws.onopen = () => {
-      this.retryDelay = 1000;
-      this.update({ server: 'connected', error: null });
-      this.send({ type: 'hello', name: this.name });
-    };
+    this.session = null;
+    this.sendSeq = 0;
+    this.recvSeq = 0;
+    let serverNonce = null;
+    let phoneNonce = null;
 
     ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
+      let frame;
+      try { frame = JSON.parse(e.data); } catch { return; }
+
+      // ---- Pairing handshake ----
+      if (!this.session) {
+        if (frame.type === 'challenge' && !serverNonce) {
+          serverNonce = String(frame.nonce);
+          phoneNonce = randomHex(16);
+          ws.send(JSON.stringify({ type: 'auth', nonce: phoneNonce, proof: hmacHex(this.key, `phone|${serverNonce}|${phoneNonce}`) }));
+        } else if (frame.type === 'auth-ok' && serverNonce) {
+          if (!hexEqual(frame.proof, hmacHex(this.key, `server|${serverNonce}|${phoneNonce}`))) {
+            // Something answered that doesn't know our key: not our PC.
+            this.fail('impostor');
+            return;
+          }
+          this.session = hmacHex(this.key, `session|${serverNonce}|${phoneNonce}`);
+          this.retryDelay = 1000;
+          this.update({ server: 'connected', error: null });
+          this.send({ type: 'hello', name: this.name });
+        }
+        return;
+      }
+
+      // ---- Signed messages ----
+      const s = Number(frame.s);
+      if (typeof frame.m !== 'string' || !(s > this.recvSeq) ||
+          !hexEqual(frame.h, hmacHex(this.session, `s|${s}|${frame.m}`))) {
+        ws.close();
+        return;
+      }
+      this.recvSeq = s;
       let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
+      try { msg = JSON.parse(frame.m); } catch { return; }
       // In order: an ICE candidate must not overtake the answer it belongs to.
       this.queue = this.queue.then(() => this.handle(msg)).catch((err) => console.warn('[PhoneCam]', err));
     };
@@ -107,6 +153,10 @@ export default class PhoneCamClient {
         this.update({ server: 'replaced' });
         return;
       }
+      if (e.code === 4003) {
+        this.fail('wrong-key');
+        return;
+      }
       this.update({ server: 'connecting' });
       this.retryTimer = setTimeout(() => this.connect(), this.retryDelay);
       this.retryDelay = Math.min(this.retryDelay * 2, 5000);
@@ -114,7 +164,21 @@ export default class PhoneCamClient {
   }
 
   send(msg) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+    if (this.ws?.readyState !== WebSocket.OPEN || !this.session) return;
+    const m = JSON.stringify(msg);
+    const s = ++this.sendSeq;
+    this.ws.send(JSON.stringify({ m, s, h: hmacHex(this.session, `p|${s}|${m}`) }));
+  }
+
+  // Permanent problems: don't keep retrying.
+  fail(reason) {
+    this.stopped = true;
+    clearTimeout(this.retryTimer);
+    const ws = this.ws;
+    this.ws = null;
+    ws?.close();
+    for (const id of [...this.peers.keys()]) this.closePeer(id);
+    this.update({ server: reason });
   }
 
   async handle(msg) {

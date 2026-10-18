@@ -5,9 +5,23 @@ import { colors } from '../theme';
 import { parsePairingUrl, validate } from '../pairing';
 import Button from '../components/Button';
 
-export default function PairScreen({ saved, onPaired }) {
+export default function PairScreen({ saved, pending, onPaired, onDismissPending }) {
   const [mode, setMode] = useState('home'); // home | scan | manual
   if (mode === 'scan') return <Scanner onCancel={() => setMode('home')} onPaired={onPaired} />;
+
+  if (pending) {
+    return (
+      <View style={[styles.page, styles.center]}>
+        <Text style={styles.title}>Share your camera?</Text>
+        <Text style={styles.subtitle}>
+          A pairing link wants PhoneCam to stream your camera and microphone to the PC at{' '}
+          <Text style={styles.strong}>{pending.host}:{pending.port}</Text>.{'\n'}Only continue if that's your own PC.
+        </Text>
+        <Button title="Connect" onPress={() => onPaired(pending)} />
+        <Button title="Cancel" variant="secondary" onPress={onDismissPending} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -142,6 +156,7 @@ const styles = StyleSheet.create({
   logoLens: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.accent },
   title: { color: colors.text, fontSize: 28, fontWeight: '700', textAlign: 'center' },
   subtitle: { color: colors.muted, fontSize: 15, textAlign: 'center', marginBottom: 10, lineHeight: 21 },
+  strong: { color: colors.text, fontWeight: '700' },
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 16 },
   cardLabel: { color: colors.muted, fontSize: 13, marginBottom: 4 },
   cardValue: { color: colors.text, fontSize: 18, fontWeight: '600' },

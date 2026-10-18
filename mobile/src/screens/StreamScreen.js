@@ -319,7 +319,7 @@ export default function StreamScreen({ pairing, onExit }) {
 
         <View style={styles.spacer} pointerEvents="box-none" />
 
-        {status.server === 'replaced' ? (
+        {['replaced', 'wrong-key', 'impostor'].includes(status.server) ? (
           <Button title="Back" onPress={onExit} style={styles.wide} />
         ) : (
           <View style={styles.controls}>
@@ -343,6 +343,10 @@ function statusPill(status, cameraError) {
   switch (status.server) {
     case 'replaced':
       return { color: colors.danger, text: 'Another phone connected to this PC' };
+    case 'wrong-key':
+      return { color: colors.danger, text: 'Pairing key was rejected', hint: 'Scan the QR code on your PC again.' };
+    case 'impostor':
+      return { color: colors.danger, text: 'This isn\'t your PhoneCam PC', hint: 'Something at this address doesn\'t know your pairing key. Camera not shared.' };
     case 'connecting':
       return status.error
         ? { color: colors.danger, text: 'Can\'t reach your PC', hint: 'Is PhoneCam running on the PC? Are both on the same Wi-Fi? Retrying…' }
